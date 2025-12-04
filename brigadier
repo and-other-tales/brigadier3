@@ -1,20 +1,20 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import sys
 import subprocess
-import urllib2
+from urllib.request import urlopen, urlretrieve
+from urllib.error import URLError, HTTPError
 import plistlib
 import re
 import tempfile
 import shutil
-import optparse
+import argparse
 import datetime
 import platform
 import requests
 
 from pprint import pprint
-from urllib import urlretrieve
 from xml.dom import minidom
 
 VERSION = '0.2.6'
@@ -23,7 +23,7 @@ SUCATALOG_URL = 'https://swscan.apple.com/content/catalogs/others/index-11-10.15
 SEVENZIP_URL = 'https://www.7-zip.org/a/7z2201-x64.msi'
 
 def status(msg):
-    print "%s\n" % msg
+    print("%s\n" % msg)
 
 def getCommandOutput(cmd):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
@@ -42,7 +42,7 @@ def getMachineModel():
         model = nodes[0].data
     elif platform.system() == 'Darwin':
         plistxml = getCommandOutput(['system_profiler', 'SPHardwareDataType', '-xml'])
-        plist = plistlib.readPlistFromString(plistxml)
+        plist = plistlib.loads(plistxml)
         model = plist[0]['_items'][0]['machine_model']
     return model
 
@@ -116,39 +116,39 @@ def installBootcamp(msipath):
     status("Executing command: '%s'" % " ".join(cmd))
     subprocess.call(cmd)
     status("Install log output:")
-    with open(logpath, 'r') as logfd:
+    with open(logpath, 'rb') as logfd:
         logdata = logfd.read()
-        print logdata.decode('utf-16')
+        print(logdata.decode('utf-16'))
     postInstallConfig()
     
 def main():
     scriptdir = os.path.abspath(os.path.dirname(sys.argv[0]))
 
-    o = optparse.OptionParser()
-    o.add_option('-m', '--model', action="append",
-        help="System model identifier to use (otherwise this machine's \
-model is used). This can be specified multiple times to download \
-multiple models in a single run.")
-    o.add_option('-i', '--install', action="store_true",
-        help="After the installer is downloaded, perform the install automatically. \
-Can be used on Windows only.")
-    o.add_option('-o', '--output-dir',
-        help="Base path where the installer files will be extracted into a folder named after the \
-product, ie. 'BootCamp-041-1234'. Uses the current directory if this option is omitted.")
-    o.add_option('-k', '--keep-files', action="store_true",
-        help="Keep the files that were downloaded/extracted. Useful only with the \
-'--install' option on Windows.")
-    o.add_option('-p', '--product-id',
-        help="Specify an exact product ID to download (ie. '031-0787'), currently useful only for cases \
-where a model has multiple BootCamp ESDs available and is not downloading the desired version \
-according to the post date.")
-    o.add_option('-V', '--version', action="store_true",
+    parser = argparse.ArgumentParser(
+        description='Boot Camp driver download/installation utility',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('-m', '--model', action="append",
+        help="System model identifier to use (otherwise this machine's "
+             "model is used). This can be specified multiple times to download "
+             "multiple models in a single run.")
+    parser.add_argument('-i', '--install', action="store_true",
+        help="After the installer is downloaded, perform the install automatically. "
+             "Can be used on Windows only.")
+    parser.add_argument('-o', '--output-dir',
+        help="Base path where the installer files will be extracted into a folder named after the "
+             "product, ie. 'BootCamp-041-1234'. Uses the current directory if this option is omitted.")
+    parser.add_argument('-k', '--keep-files', action="store_true",
+        help="Keep the files that were downloaded/extracted. Useful only with the "
+             "'--install' option on Windows.")
+    parser.add_argument('-p', '--product-id',
+        help="Specify an exact product ID to download (ie. '031-0787'), currently useful only for cases "
+             "where a model has multiple BootCamp ESDs available and is not downloading the desired version "
+             "according to the post date.")
+    parser.add_argument('-V', '--version', action='version', version=VERSION,
         help="Output the version of brigadier.")
 
-    opts, args = o.parse_args()
-    if opts.version:
-        print VERSION
-        sys.exit(0)
+    opts = parser.parse_args()
 
     if opts.install:
         if platform.system() == 'Darwin':
@@ -191,24 +191,26 @@ when running the installer out of 'system32'." % output_dir)
         plist_path = os.path.join(scriptdir, 'brigadier.plist')
         if os.path.isfile(plist_path):
             try:
-                config_plist = plistlib.readPlist(plist_path)
-            except:
-                status("Config plist was found at %s but it could not be read. \
-                Verify that it is readable and is an XML formatted plist." % plist_path)
+                with open(plist_path, 'rb') as f:
+                    config_plist = plistlib.load(f)
+            except (OSError, plistlib.InvalidFileException) as e:
+                status("Config plist was found at %s but it could not be read. "
+                       "Verify that it is readable and is an XML formatted plist. Error: %s"
+                       % (plist_path, e))
         if config_plist:
-            if 'CatalogURL' in config_plist.keys():
+            if 'CatalogURL' in config_plist:
                 sucatalog_url = config_plist['CatalogURL']
 
 
-        urlfd = urllib2.urlopen(sucatalog_url)
+        urlfd = urlopen(sucatalog_url)
         data = urlfd.read()
-        p = plistlib.readPlistFromString(data)
+        p = plistlib.loads(data)
         allprods = p['Products']
 
         # Get all Boot Camp ESD products
         bc_prods = []
         for (prod_id, prod_data) in allprods.items():
-            if 'ServerMetadataURL' in prod_data.keys():
+            if 'ServerMetadataURL' in prod_data:
                 bc_match = re.search('BootCamp', prod_data['ServerMetadataURL'])
                 if bc_match:
                     bc_prods.append((prod_id, prod_data))
@@ -216,10 +218,10 @@ when running the installer out of 'system32'." % output_dir)
         pkg_data = []
         re_model = "([a-zA-Z]{4,12}[1-9]{1,2}\,[1-6])"
         for bc_prod in bc_prods:
-            if 'English' in bc_prod[1]['Distributions'].keys():
+            if 'English' in bc_prod[1]['Distributions']:
                 disturl = bc_prod[1]['Distributions']['English']
-                distfd = urllib2.urlopen(disturl)
-                dist_data = distfd.read()
+                distfd = urlopen(disturl)
+                dist_data = distfd.read().decode('utf-8')
                 if re.search(model, dist_data):
                     supported_models = []
                     pkg_data.append({bc_prod[0]: bc_prod[1]})
@@ -239,37 +241,37 @@ when running the installer out of 'system32'." % output_dir)
                 sys.exit("--product-id option is only applicable when multiple ESDs are found for a model.")
         if len(pkg_data) > 1:
             # sys.exit("There is more than one ESD product available for this model: %s. "
-            #          "Automically selecting the one with the most recent PostDate.." 
+            #          "Automically selecting the one with the most recent PostDate.."
             #          % ", ".join([p.keys()[0] for p in pkg_data]))
-            print "There is more than one ESD product available for this model:"
+            print("There is more than one ESD product available for this model:")
             # Init latest to be epoch start
             latest_date = datetime.datetime.fromtimestamp(0)
             chosen_product = None
             for i, p in enumerate(pkg_data):
-                product = p.keys()[0]
+                product = list(p.keys())[0]
                 postdate = p[product].get('PostDate')
-                print "%s: PostDate %s" % (product, postdate)
+                print("%s: PostDate %s" % (product, postdate))
                 if postdate > latest_date:
                     latest_date = postdate
                     chosen_product = product
 
             if opts.product_id:
-                if opts.product_id not in [k.keys()[0] for k in pkg_data]:
+                if opts.product_id not in [list(k.keys())[0] for k in pkg_data]:
                     sys.exit("Product specified with '--product-id %s' either doesn't exist "
                              "or was not found applicable to models: %s"
                              % (opts.product_id, ", ".join(models)))
                 chosen_product = opts.product_id
-                print "Selecting manually-chosen product %s." % chosen_product
+                print("Selecting manually-chosen product %s." % chosen_product)
             else:
-                print "Selecting %s as it's the most recently posted." % chosen_product
+                print("Selecting %s as it's the most recently posted." % chosen_product)
 
             for p in pkg_data:
-                if p.keys()[0] == chosen_product:
+                if list(p.keys())[0] == chosen_product:
                     selected_pkg = p
             pkg_data = selected_pkg
 
-        pkg_id = pkg_data.keys()[0]
-        pkg_url = pkg_data.values()[0]['Packages'][0]['URL']
+        pkg_id, pkg_info = next(iter(pkg_data.items()))
+        pkg_url = pkg_info['Packages'][0]['URL']
 
         # make a sub-dir in the output_dir here, named by product
         landing_dir = os.path.join(output_dir, 'BootCamp-' + pkg_id)

@@ -1,3 +1,16 @@
+### 0.2.7 (December 4, 2024)
+- **BREAKING CHANGE:** Migrate from Python 2.7 to Python 3.12+
+  - All Python 2 syntax and idioms replaced with Python 3 equivalents
+  - urllib2 → urllib.request migration
+  - optparse → argparse migration (command-line interface)
+  - plistlib API updated (readPlist/readPlistFromString → load/loads)
+  - Fixed binary data handling and string encoding (UTF-8, UTF-16)
+  - Fixed dictionary operations for Python 3 dict views
+  - Updated all dependencies to Python 3.12+ compatible versions
+  - PyInstaller updated from 3.6 to 6.0+ for Windows builds
+  - CI/CD updated to use Python 3.12.7
+- Note: Python 2.7 is no longer supported
+
 ### 0.2.6 (November 9, 2022)
 - use certifi package to provide a certificates bundle, fixing issues
   with accessing 7-zip website (LetsEncrypt) from old Windows versions

@@ -43,22 +43,33 @@ It can also be run directly from a Git checkout on either OS X or Windows.
 
 Besides a few command-line options:
 
-<pre><code>Usage: brigadier [options]
+<pre><code>usage: brigadier [-h] [-m MODEL] [-i] [-o OUTPUT_DIR] [-k] [-p PRODUCT_ID] [-V]
 
-Options:
+Boot Camp driver download/installation utility
+
+optional arguments:
   -h, --help            show this help message and exit
-  -m MODEL, --model=MODEL
+  -m MODEL, --model MODEL
                         System model identifier to use (otherwise this
-                        machine's model is used).
+                        machine's model is used). This can be specified
+                        multiple times to download multiple models in a
+                        single run.
   -i, --install         After the installer is downloaded, perform the install
                         automatically. Can be used on Windows only.
-  -o OUTPUT_DIR, --output-dir=OUTPUT_DIR
+  -o OUTPUT_DIR, --output-dir OUTPUT_DIR
                         Base path where the installer files will be extracted
                         into a folder named after the product, ie.
                         'BootCamp-041-1234'. Uses the current directory if
                         this option is omitted.
   -k, --keep-files      Keep the files that were downloaded/extracted. Useful
-                        only with the '--install' option on Windows.</code></pre>
+                        only with the '--install' option on Windows.
+  -p PRODUCT_ID, --product-id PRODUCT_ID
+                        Specify an exact product ID to download (ie.
+                        '031-0787'), currently useful only for cases where a
+                        model has multiple BootCamp ESDs available and is not
+                        downloading the desired version according to the post
+                        date.
+  -V, --version         Output the version of brigadier.</code></pre>
 
 You can also create a `brigadier.plist` XML plist file and place it in the same directory as the script. It currently supports one key: `CatalogURL`, a string that points to an internal SUS catalog URL that contains BootCampESD packages. See the example [in this repo](https://github.com/timsutton/brigadier/blob/master/plist-example/brigadier.plist).
 
@@ -72,11 +83,13 @@ By default, when `--install` is used, it will clean up its extracted files after
 
 ## Running/building from source on Windows
 
-If you'd rather run it as a standard Python script, you'll need [Python for Windows](http://www.python.org/download/releases) (this was tested with the latest 2.7 release) in order to execute the script.
+If you'd rather run it as a standard Python script, you'll need [Python for Windows](https://www.python.org/downloads/) (requires Python 3.12 or later) in order to execute the script.
 
-If you'd rather build it yourself, you can use the included build script. It requires [Python](http://www.python.org/download/releases) and the matching version of [pywin32](http://sourceforge.net/projects/pywin32/files). It handles downloading PyInstaller for you. Simply run it with no arguments, and it will build a zip file in the current working directory:
+If you'd rather build it yourself, you can use the included build script. It requires [Python 3.12+](https://www.python.org/downloads/) and the matching version of [pywin32](http://sourceforge.net/projects/pywin32/files). It handles downloading PyInstaller for you. Simply run it with no arguments, and it will build a zip file in the current working directory:
 
-`c:\python27\python build_windows_exe.py`
+`c:\python312\python build_windows_exe.py`
+
+**Note:** As of version 0.2.7, brigadier requires Python 3.12 or later. Python 2.7 is no longer supported.
 
 ## Unpack details on Windows
 

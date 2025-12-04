@@ -2,7 +2,7 @@
 
 set -eux -o pipefail
 
-PYTHON_VERSION=2.7.18
+PYTHON_VERSION=3.12.7
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd )"
 python="/c/hostedtoolcache/windows/Python/${PYTHON_VERSION}/x64/python"
