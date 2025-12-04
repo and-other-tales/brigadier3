@@ -3,8 +3,6 @@
 import os
 import sys
 import subprocess
-from urllib.request import urlopen, urlretrieve
-from urllib.error import URLError, HTTPError
 import plistlib
 import re
 import tempfile
@@ -13,6 +11,8 @@ import argparse
 import datetime
 import platform
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from pprint import pprint
 from xml.dom import minidom
@@ -24,6 +24,38 @@ SEVENZIP_URL = 'https://www.7-zip.org/a/7z2201-x64.msi'
 
 def status(msg):
     print("%s\n" % msg)
+
+def create_session_with_retries(max_retries=5, backoff_factor=0.5):
+    """
+    Creates a requests Session with automatic retry logic.
+
+    Args:
+        max_retries: Maximum number of retry attempts (default: 5)
+        backoff_factor: Multiplier for exponential backoff (default: 0.5)
+                       Sleep time: {backoff_factor} * (2 ** (retry_number - 1))
+                       Retries: 0.5s, 1s, 2s, 4s, 8s
+
+    Returns:
+        Configured requests.Session object
+    """
+    # Create retry strategy
+    retry_strategy = Retry(
+        total=max_retries,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS"],
+        backoff_factor=backoff_factor,
+        raise_on_status=False
+    )
+
+    # Create adapter with retry strategy
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+
+    # Create and configure session
+    session = requests.Session()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+
+    return session
 
 def getCommandOutput(cmd):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
@@ -46,31 +78,87 @@ def getMachineModel():
         model = plist[0]['_items'][0]['machine_model']
     return model
 
-def downloadFile(url, filename, use_requests=False):
-    # http://stackoverflow.com/questions/13881092/
-    # download-progressbar-for-python-3/13895723#13895723
-    def reporthook(blocknum, blocksize, totalsize):
-        readsofar = blocknum * blocksize
-        if totalsize > 0:
-            percent = readsofar * 1e2 / totalsize
-            console_out = "\r%5.1f%% %*d / %d bytes" % (
-                percent, len(str(totalsize)), readsofar, totalsize)
-            sys.stderr.write(console_out)
-            if readsofar >= totalsize: # near the end
-                sys.stderr.write("\n")
-        else: # total size is unknown
-            sys.stderr.write("read %d\n" % (readsofar,))
+def download_with_progress(url, output_path, session, chunk_size=8192, timeout=(10, 30)):
+    """
+    Download a file with progress reporting and retry logic.
 
-    if use_requests:
-        resp = requests.get(url, stream=True)
-        with open(filename, 'wb') as fd:
-            for chunk in resp.iter_content(chunk_size=1024):
-                fd.write(chunk)
-        return
+    Args:
+        url: URL to download from
+        output_path: Local path to save the file
+        session: Configured requests.Session with retry logic
+        chunk_size: Size of chunks to download (default: 8KB)
+        timeout: Tuple of (connect_timeout, read_timeout) in seconds
 
-    # urlretrieve method will likely just go away soon, and we'll use only requests
-    # with some kind of report/progress output
-    urlretrieve(url, filename, reporthook=reporthook)
+    Raises:
+        requests.exceptions.RequestException: On unrecoverable download failure
+    """
+    try:
+        # Stream the download
+        response = session.get(url, stream=True, timeout=timeout)
+        response.raise_for_status()
+
+        # Get total file size if available
+        total_size = int(response.headers.get('content-length', 0))
+
+        # Download with progress reporting
+        downloaded = 0
+        with open(output_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+
+                    # Report progress
+                    if total_size > 0:
+                        percent = downloaded * 100.0 / total_size
+                        console_out = "\r%5.1f%% %*d / %d bytes" % (
+                            percent, len(str(total_size)), downloaded, total_size)
+                        sys.stderr.write(console_out)
+                        if downloaded >= total_size:
+                            sys.stderr.write("\n")
+                    else:
+                        sys.stderr.write("read %d\n" % downloaded)
+
+    except requests.exceptions.RequestException as e:
+        status("Download failed: %s" % str(e))
+        raise
+
+def download_text(url, session, timeout=(10, 30)):
+    """
+    Download text/data content with retry logic.
+
+    Args:
+        url: URL to download from
+        session: Configured requests.Session with retry logic
+        timeout: Tuple of (connect_timeout, read_timeout) in seconds
+
+    Returns:
+        bytes: Downloaded content
+
+    Raises:
+        requests.exceptions.RequestException: On unrecoverable download failure
+    """
+    try:
+        response = session.get(url, timeout=timeout)
+        response.raise_for_status()
+        return response.content
+    except requests.exceptions.RequestException as e:
+        status("Download failed for %s: %s" % (url, str(e)))
+        raise
+
+def downloadFile(url, filename, use_requests=None):
+    """
+    Download a file with automatic retry logic and progress reporting.
+
+    Args:
+        url: URL to download from
+        filename: Local path to save the file
+        use_requests: Deprecated parameter (kept for backward compatibility)
+
+    Note: use_requests parameter is ignored; requests library is always used now.
+    """
+    session = create_session_with_retries(max_retries=5, backoff_factor=0.5)
+    download_with_progress(url, filename, session)
 
 def sevenzipExtract(arcfile, command='e', out_dir=None):
     cmd = [os.path.join(os.environ['SYSTEMDRIVE'] + "\\", "Program Files", "7-Zip", "7z.exe")]
@@ -202,8 +290,13 @@ when running the installer out of 'system32'." % output_dir)
                 sucatalog_url = config_plist['CatalogURL']
 
 
-        urlfd = urlopen(sucatalog_url)
-        data = urlfd.read()
+        status("Downloading software update catalog...")
+        session = create_session_with_retries(max_retries=3, backoff_factor=1.0)
+        try:
+            data = download_text(sucatalog_url, session, timeout=(15, 45))
+        except requests.exceptions.RequestException as e:
+            sys.exit("Failed to download software update catalog from %s: %s" %
+                     (sucatalog_url, str(e)))
         p = plistlib.loads(data)
         allprods = p['Products']
 
@@ -220,8 +313,13 @@ when running the installer out of 'system32'." % output_dir)
         for bc_prod in bc_prods:
             if 'English' in bc_prod[1]['Distributions']:
                 disturl = bc_prod[1]['Distributions']['English']
-                distfd = urlopen(disturl)
-                dist_data = distfd.read().decode('utf-8')
+                try:
+                    dist_bytes = download_text(disturl, session, timeout=(10, 30))
+                    dist_data = dist_bytes.decode('utf-8')
+                except requests.exceptions.RequestException as e:
+                    status("Warning: Failed to download distribution file at %s: %s" %
+                           (disturl, str(e)))
+                    continue
                 if re.search(model, dist_data):
                     supported_models = []
                     pkg_data.append({bc_prod[0]: bc_prod[1]})
