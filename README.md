@@ -108,3 +108,5 @@ On OS X, we have the native hdiutil and pkgutil commands to do the work of unpac
 * The 7-Zip downloads from a public URLs which is hardcoded in the script. Soon the `brigadier.plist` will support overriding these URLs with your own copies stored on a private webserver.
 * After installation, it sets the `FirstTimeRun` registry key at `HKEY_CURRENT_USER\Software\Apple Inc.\Apple Keyboard Support` to disable the first-launch Boot Camp help popup, and there's currently no option to disable this behaviour.
 * Only supports installations on 64-bit Windows. It's worth mentioning that the December 2012 Boot Camp driver ESDs seem to be 64-bit only, so extra work would need to be done to support 32-bit Windows. If 32-bit Windows support is important to you, there is an [issue](https://github.com/timsutton/brigadier/issues/2) created to track it.
+
+Copyright (c) 2025 PI & Other Tales (David James Lennon)
